@@ -4,8 +4,6 @@
 # valet.sh
 #
 # @author: "Johann Zelger"
-# @command: "tests"
-# @description: "test command"
 
 - name: "tests"
   hosts: local
