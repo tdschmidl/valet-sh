@@ -377,7 +377,10 @@ function print_usage {
         for file in ./playbooks/**.yml; do
             local cmd_name=$(basename $file .yml);
             local cmd_description=$(grep '^\#[[:space:]]@description:' -m 1 $file | awk -F'"' '{ print $2}');
-            printf "  \e[32m%s %s \e[39m${cmd_description}\n" $cmd_name "${cmd_output_space:${#cmd_name}}"
+            local cmd_visible=$(grep '^\#[[:space:]]@command:' -m 1 $file | awk -F'"' '{ print $2}');
+            if [ -n "$cmd_visible" ]; then
+                printf "  \e[32m%s %s \e[39m${cmd_description}\n" $cmd_name "${cmd_output_space:${#cmd_name}}"
+            fi
         done
     fi
 
