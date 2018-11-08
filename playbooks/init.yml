@@ -1,0 +1,13 @@
+#!/usr/bin/env ansible-playbook
+---
+#
+# valet.sh
+# Temporary workaround till install_upgrade from CLI is available in ansible
+# @author: "Johann Zelger"
+
+- name: "Init"
+  hosts: local
+  gather_facts: True
+
+  roles:
+    - role: common

@@ -179,11 +179,9 @@ function prepare {
     install_deps
 
     # check if git dir is available
-    if [ -d $BASE_DIR/.git ]; then
-        # get the current version from git
-        #APPLICATION_VERSION=$(git --git-dir=${BASE_DIR}/.git --work-tree=${BASE_DIR} describe --tags)
-        # set cwd to base dir
-        cd $BASE_DIR
+    if [ -d "$INSTALL_DIR/.git" ]; then
+        # set cwd to base dir, note: for development use this will be different from $INSTALL_DIR
+        cd "$BASE_DIR"
     fi
 
 }
@@ -232,6 +230,9 @@ function install_deps {
 #   None
 #######################################
 function install_upgrade {
+
+    # run os-dependent ansible init playbook
+    execute_ansible_playbook init
 
     # reset release tag to current application version
     RELEASE_TAG=$APPLICATION_VERSION
