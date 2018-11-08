@@ -4,8 +4,8 @@
 - command: "true"
   become: True
 
-- shell: sw_vers -productVersion
-  register: sw_vers
+#- shell: sw_vers -productVersion
+#  register: sw_vers
 
 # todo: remove hardcoded os_version when introducing distil package-manager
 - set_fact:
@@ -21,5 +21,6 @@
     mode: 0755
   become: true
 
-#- include_role:
+- include_role:
+    name: dependencies
 #    name: gnutar

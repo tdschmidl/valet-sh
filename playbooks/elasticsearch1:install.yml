@@ -4,12 +4,14 @@
 # valet.sh | elasticsearch
 #
 # @author: "Johann Zelger"
+# @command: "elasticsearch1:install"
 # @description: "Elasticsearch privisioning commands"
 
 - name: "install elasticsearch v1"
   hosts: local
   gather_facts: True
   roles:
+    - role: common
     - role: java
     - role: elasticsearch
   vars:

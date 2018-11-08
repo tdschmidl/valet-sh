@@ -2,17 +2,12 @@
 ---
 #
 # valet.sh
-#
+# Temporary workaround till install_upgrade from CLI is available in ansible
 # @author: "Johann Zelger"
 
-- name: "tests"
+- name: "Init"
   hosts: local
   gather_facts: True
 
   roles:
     - role: common
-
-  tasks:
-
-  - debug:
-      msg: "{{ cli }}"
