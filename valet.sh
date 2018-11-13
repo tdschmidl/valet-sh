@@ -209,14 +209,13 @@ function install_deps {
         rm -rf /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
         spinner_toogle
     fi
->>>>>>> upstream/master
     # check if ansible command is available
     if [ ! -x "$(command -v ansible)" ]; then
-        #spinner_toogle "Installing Ansible \e[32m$command\e[39m"
+        spinner_toogle "Installing Ansible \e[32m$command\e[39m"
         # if ansible is not available, install pip and ansible
         sudo easy_install pip;
         sudo pip install -Iq ansible;
-        #spinner_toogle
+        spinner_toogle
     fi
 }
 
