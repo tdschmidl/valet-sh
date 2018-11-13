@@ -181,7 +181,7 @@ function prepare {
     # check if git dir is available
     if [ -d $BASE_DIR/.git ]; then
         # get the current version from git
-        APPLICATION_VERSION=$(git --git-dir=${BASE_DIR}/.git --work-tree=${BASE_DIR} describe --tags)
+        #APPLICATION_VERSION=$(git --git-dir=${BASE_DIR}/.git --work-tree=${BASE_DIR} describe --tags)
         # set cwd to base dir
         cd $BASE_DIR
     fi
@@ -502,6 +502,32 @@ EOM
 function shutdown {
     # exit with given return code
     exit $APPLICATION_RETURN_CODE
+}
+
+
+#######################################
+# Initial cli client install routine
+# Globals:
+#   None
+# Arguments:
+#   None
+# Returns:
+#   None
+#######################################
+function install_valet_sh {
+    if [ ! -x "$(command -v ansible)" ]; then
+        spinner_toogle "Installing Ansible \e[32m$command\e[39m"
+        # if ansible is not available, install pip and ansible
+        sudo easy_install pip;
+        sudo pip install -Iq ansible;
+        spinner_toogle
+    fi
+
+    # Download current release tarball
+    curl -s https://api.github.com/repos/valet-sh/valet-sh/releases/latest | grep "tarball_url" | cut -d : -f 2,3 | tr -d \" | tr -d , | wget -qi -  -O latest_release.tar
+
+
+
 }
 
 #######################################
