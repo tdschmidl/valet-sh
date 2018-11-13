@@ -527,9 +527,9 @@ function install_valet_sh {
     fi
 
     # Download current release tarball
-    curl -s https://api.github.com/repos/valet-sh/valet-sh/releases/latest | grep "tarball_url" | cut -d : -f 2,3 | tr -d \" | tr -d , | wget -qi -  -O latest_release.tar
+    curl -s https://api.github.com/repos/valet-sh/valet-sh/releases/latest | grep "tarball_url" | cut -d : -f 2,3 | tr -d \" | tr -d , | wget -qi -  -O /tmp/latest_release.tar || log "ding dong dang"
 
-
+# Todo
 
 }
 
