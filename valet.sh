@@ -179,11 +179,9 @@ function prepare {
     install_deps
 
     # check if git dir is available
-    if [ -d $BASE_DIR/.git ]; then
-        # get the current version from git
-        #APPLICATION_VERSION=$(git --git-dir=${BASE_DIR}/.git --work-tree=${BASE_DIR} describe --tags)
-        # set cwd to base dir
-        cd $BASE_DIR
+    if [ -d "$INSTALL_DIR/.git" ]; then
+        # set cwd to base dir, note: for development use this will be different from $INSTALL_DIR
+        cd "$BASE_DIR"
     fi
 
 }
@@ -199,23 +197,23 @@ function prepare {
 #######################################
 function install_deps {
     # check if macOS command line tools are available by checking git bin
-    if [ ! -f /Library/Developer/CommandLineTools/usr/bin/git ]; then
-        spinner_toogle "Installing CommandLineTools \e[32m$command\e[39m"
+    #if [ ! -f /Library/Developer/CommandLineTools/usr/bin/git ]; then
+    #    spinner_toogle "Installing CommandLineTools \e[32m$command\e[39m"
         # if git command is not available, install command line tools
         # create macOS flag file, that CommandLineTools can be installed on demand
-        touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+   #     touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
         # install command line tools
-        SOFTWARE_UPDATE_NAME=$(softwareupdate -l | grep -B 1 -E "Command Line Tools.*$(sw_vers -productVersion)" | awk -F'*' '/^ +\*/ {print $2}' | sed 's/^ *//' | tail -n1)
-        softwareupdate -i "$SOFTWARE_UPDATE_NAME"
-        spinner_toogle
-    fi
+  #      SOFTWARE_UPDATE_NAME=$(softwareupdate -l | grep -B 1 -E "Command Line Tools.*$(sw_vers -productVersion)" | awk -F'*' '/^ +\*/ {print $2}' | sed 's/^ *//' | tail -n1)
+  #      softwareupdate -i "$SOFTWARE_UPDATE_NAME"
+  #      spinner_toogle
+  #  fi
     # check if ansible command is available
     if [ ! -x "$(command -v ansible)" ]; then
-        spinner_toogle "Installing Ansible \e[32m$command\e[39m"
+        #spinner_toogle "Installing Ansible \e[32m$command\e[39m"
         # if ansible is not available, install pip and ansible
         sudo easy_install pip;
         sudo pip install -Iq ansible;
-        spinner_toogle
+        #spinner_toogle
     fi
 }
 
@@ -232,6 +230,9 @@ function install_deps {
 #   None
 #######################################
 function install_upgrade {
+
+    # run os-dependent ansible init playbook
+    execute_ansible_playbook init
 
     # reset release tag to current application version
     RELEASE_TAG=$APPLICATION_VERSION
