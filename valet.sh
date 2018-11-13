@@ -197,16 +197,19 @@ function prepare {
 #######################################
 function install_deps {
     # check if macOS command line tools are available by checking git bin
-    #if [ ! -f /Library/Developer/CommandLineTools/usr/bin/git ]; then
-    #    spinner_toogle "Installing CommandLineTools \e[32m$command\e[39m"
+    if [ ! -f /Library/Developer/CommandLineTools/usr/bin/git ]; then
+        spinner_toogle "Installing CommandLineTools \e[32m$command\e[39m"
         # if git command is not available, install command line tools
         # create macOS flag file, that CommandLineTools can be installed on demand
-   #     touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+        touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
         # install command line tools
-  #      SOFTWARE_UPDATE_NAME=$(softwareupdate -l | grep -B 1 -E "Command Line Tools.*$(sw_vers -productVersion)" | awk -F'*' '/^ +\*/ {print $2}' | sed 's/^ *//' | tail -n1)
-  #      softwareupdate -i "$SOFTWARE_UPDATE_NAME"
-  #      spinner_toogle
-  #  fi
+        SOFTWARE_UPDATE_NAME=$(softwareupdate -l | grep -B 1 -E "Command Line Tools.*$(sw_vers -productVersion)" | awk -F'*' '/^ +\*/ {print $2}' | sed 's/^ *//' | tail -n1)
+        softwareupdate -i "$SOFTWARE_UPDATE_NAME"
+        # cleanup in-progress file for macos softwareupdate util
+        rm -rf /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
+        spinner_toogle
+    fi
+>>>>>>> upstream/master
     # check if ansible command is available
     if [ ! -x "$(command -v ansible)" ]; then
         #spinner_toogle "Installing Ansible \e[32m$command\e[39m"
