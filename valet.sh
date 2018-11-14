@@ -31,11 +31,11 @@ spinner_toogle() {
         local i=0
         tput sc
         # wait for .inprogress flag file to be created by ansible callback plugin
-        while [ ! -f $BASE_DIR/.inprogress ]; do sleep 0.5; done
-        while [ 1 ]; do
+        while [ ! -f "$BASE_DIR/.inprogress" ]; do sleep 0.5; done
+        while true; do
             printf "\e[32m%s\e[39m $1 " "${list[i]}"
-            i=$(($i+1))
-            i=$(($i%10))
+            ((i++))
+            ((i%10))
             sleep 0.1
             tput rc
         done
@@ -70,6 +70,7 @@ function log {
     case "${1--h}" in
         error) printf "\033[1;31m✘ %s\033[0m\n" "$2";;
         success) printf "\033[1;32m✔ %s\033[0m\n" "$2";;
+        debug) if [ "$DEBUG_ENABLED" ]; then printf "\033[1;32mDebug: %s\033[0m\n" "$2";fi;;
         *) printf "%s\n" "$2";;
     esac
 }
@@ -143,51 +144,86 @@ function version_compare {
 }
 
 #######################################
-# Prepares variables and other stuff
+# Set and get global variables
 # Globals:
+#   APPLICATION_RETURN_CODE
 #   APPLICATION_START_TIME
 #   APPLICATION_NAME
 #   APPLICATION_MODE
-#   APPLICATION_VERSION
-#   ANSIBLE_PLAYBOOKS_DIR
 #   APPLICATION_GIT_URL
 #   SEMVER_REGEX
+#   ANSIBLE_PLAYBOOKS_DIR
 #   INSTALL_DIR
+#   SCRIPT_PATH
 #   BASE_DIR
+#   APPLICATION_VERSION
+#   OSTYPE
+#   DEPENDENCIES_FULLFILLED
 # Arguments:
 #   None
 # Returns:
 #   None
 #######################################
-function prepare {
+function init {
+    log debug "Starting init routine"
     APPLICATION_RETURN_CODE=0
     APPLICATION_START_TIME=$(ruby -e 'puts Time.now.to_f');
     # define variables
     APPLICATION_NAME="valet.sh"
     : "${APPLICATION_MODE:=production}"
     APPLICATION_GIT_URL=${APPLICATION_GIT_URL:="https://github.com/valet-sh/valet-sh"}
-    ANSIBLE_PLAYBOOKS_DIR="playbooks"
+
     SEMVER_REGEX="^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$"
+
+    ANSIBLE_PLAYBOOKS_DIR="playbooks"
     INSTALL_DIR="$HOME/.${APPLICATION_NAME}";
 
     # resolve symlink if needed
-    test -h ${BASH_SOURCE[0]} && SCRIPT_PATH="$(readlink "${BASH_SOURCE[0]}")" || SCRIPT_PATH="${BASH_SOURCE[0]}"
-
+    # Todo early MacOS does not have BASH_SOURCE use $0 or something else
+    test -h "${BASH_SOURCE[0]}" && SCRIPT_PATH="$(readlink "${BASH_SOURCE[0]}")" || SCRIPT_PATH="${BASH_SOURCE[0]}"
     # use current bash source script dir as base_dir
     BASE_DIR="$( dirname "${SCRIPT_PATH}" )"
 
-    install_deps
+    ##logfile prepare here
 
-    # check if git dir is available
-    if [ -d "$INSTALL_DIR/.git" ]; then
-        # set cwd to base dir, note: for development use this will be different from $INSTALL_DIR
-        cd "$BASE_DIR"
-    fi
 
+    #if [ -d $INSTALL_DIR ]; then
+        # get the current version from git
+    #    APPLICATION_VERSION=$(git --git-dir="${BASE_DIR}/.git" --work-tree="${BASE_DIR}" describe --tags)
+
+   #fi
+
+    # todo : Checks in separate function check_deps --> DEPENDENCIES_FULLFILLED
+
+    # set_application_version function
+
+    #
+    #if [ -f /Library/Developer/CommandLineTools/usr/bin/git ]; then
+
+    #else
+    #    APPLICATION_VERSION=""
+    #fi
+
+    ## seperate function is_mac (ab incl 10.12 ansonsten APPLICATION_RETURN_CODE ++ shutdown A, is_linux
+    OSTYPE="unsupported"
+    if [[ $(uname -s) == "Darwin" ]]
+	 then
+	    OSTYPE="mac"
+	elif [[ $(uname -s) == "Linux" ]]
+	 then
+		OSTYPE="linux"
+    else
+		# fallback to macos
+		OSTYPE="mac"
+	fi
+
+	log debug "Finished init routine"
+
+	print_header
 }
 
 #######################################
-# Install ansible if not availabe
+# Run a initial prepare job depending on OS
 # Globals:
 #   None
 # Arguments:
@@ -195,7 +231,30 @@ function prepare {
 # Returns:
 #   None
 #######################################
-function install_deps {
+function prepare {
+    if [ "$OSTYPE" = "macos" ]
+     then
+        install_macos_deps
+    fi
+
+    # check if git dir is available
+    #if [ -d "$INSTALL_DIR/.git" ]; then
+    #    # set cwd to base dir, note: for development use this will be different from $INSTALL_DIR
+    #    cd "$BASE_DIR"
+    #fi
+
+}
+
+#######################################
+# Install ansible if not available
+# Globals:
+#   SOFTWARE_UPDATE_NAME
+# Arguments:
+#   None
+# Returns:
+#   None
+#######################################
+function install_macos_deps {
     # check if macOS command line tools are available by checking git bin
     if [ ! -f /Library/Developer/CommandLineTools/usr/bin/git ]; then
         spinner_toogle "Installing CommandLineTools \e[32m$command\e[39m"
@@ -245,9 +304,9 @@ function install_upgrade {
         local src_dir=$tmp_dir
 
         # clone project git repo to tmp dir
-        rm -rf $tmp_dir
-        git clone --quiet $APPLICATION_GIT_URL $tmp_dir
-        cd $tmp_dir
+        rm -rf "$tmp_dir"
+        git clone --quiet $APPLICATION_GIT_URL "$tmp_dir"
+        cd "$tmp_dir"
 
         # fetch all tags from application git repo
         git fetch --tags
@@ -258,24 +317,24 @@ function install_upgrade {
         # get latest semver conform git version tag on current major version releases
         for GIT_TAG in $RELEASE_TAGS; do
             if [[ "$GIT_TAG" =~ $SEMVER_REGEX ]]; then
-                RELEASE_TAG=$GIT_TAG
+                RELEASE_TAG="$GIT_TAG"
                 break;
             fi
         done
 
         # force checkout latest release tag in given major version
-        git checkout --quiet --force $RELEASE_TAG
+        git checkout --quiet --force "$RELEASE_TAG"
     else
         # take base dir for developer installation
         src_dir=$BASE_DIR
     fi
 
     # check if install dir exist
-    if [ ! -d $INSTALL_DIR ]; then
+    if [ ! -d "$INSTALL_DIR" ]; then
         # install
-        cp -r $src_dir $INSTALL_DIR
+        cp -r "$src_dir" "$INSTALL_DIR"
         # create symlink to default included PATH
-        sudo ln -sf $INSTALL_DIR/${APPLICATION_NAME} /usr/local/bin
+        sudo ln -sf "$INSTALL_DIR/${APPLICATION_NAME}" /usr/local/bin
         # output log
         log success "Installed version $RELEASE_TAG"
     else
@@ -294,10 +353,10 @@ function install_upgrade {
     fi
 
     # change directory to install dir
-    cd $INSTALL_DIR
+    cd "$INSTALL_DIR"
 
     # clean tmp dir
-    rm -rf $tmp_dir
+    rm -rf "$tmp_dir"
 }
 
 #######################################
@@ -312,9 +371,8 @@ function install_upgrade {
 #   None
 #######################################
 function print_header {
-    printf "\e[1m\e[34m$APPLICATION_NAME\033[0m $APPLICATION_VERSION\033[0m\n"
-    printf "\e[2m  (c) 2018 TechDivision GmbH\033[0m\n"
-    printf "\n"
+    echo -e "\033[1m\033[34m$APPLICATION_NAME\033[0m $APPLICATION_VERSION\033[0m"
+    echo -e "\033[2m  (c) 2018 TechDivision GmbH\033[0m\n"
 }
 
 #######################################
@@ -332,29 +390,31 @@ function print_header {
 #   None
 #######################################
 function print_footer {
-    LC_NUMERIC="en_US.UTF-8"
+    if [ "$DEBUG_ENABLED" ]; then
+        LC_NUMERIC="en_US.UTF-8"
 
-    APPLICATION_END_TIME=$(ruby -e 'puts Time.now.to_f')
-    APPLICATION_EXECUTION_TIME=$(echo "$APPLICATION_END_TIME - $APPLICATION_START_TIME" | bc);
+        APPLICATION_END_TIME=$(ruby -e 'puts Time.now.to_f')
+        APPLICATION_EXECUTION_TIME=$(echo "$APPLICATION_END_TIME - $APPLICATION_START_TIME" | bc);
 
-    printf "\n"
-    printf "\e[34m"
-    printf "\n"
-    printf "\e[1mDebug information:\033[0m"
-    printf "\e[34m"
-    printf "\n"
-    printf "  Version: \e[1m%s\033[0m\n" $APPLICATION_VERSION
-    printf "\e[34m"
-    printf "  Application mode: \e[1m%s\033[0m\n" $APPLICATION_MODE
-    printf "\e[34m"
-    printf "  Execution time: \e[1m%f sec.\033[0m\n" $APPLICATION_EXECUTION_TIME
-    printf "\e[34m"
-    printf "  Logfile: \e[1m%s\033[0m\n" $LOG_FILE
-    printf "\e[34m"
-    printf "  Exitcode: \e[1m%s\033[0m\n" $APPLICATION_RETURN_CODE
-    printf "\e[34m\033[0m"
-    printf "\n"
-    printf "\n"
+        printf "\n"
+        printf "\e[34m"
+        printf "\n"
+        printf "\e[1mDebug information:\033[0m"
+        printf "\e[34m"
+        printf "\n"
+        printf "  Version: \e[1m%s\033[0m\n" "$APPLICATION_VERSION"
+        printf "\e[34m"
+        printf "  Application mode: \e[1m%s\033[0m\n" "$APPLICATION_MODE"
+        printf "\e[34m"
+        printf "  Execution time: \e[1m%f sec.\033[0m\n" "$APPLICATION_EXECUTION_TIME"
+        printf "\e[34m"
+        printf "  Logfile: \e[1m%s\033[0m\n" "$LOG_FILE"
+        printf "\e[34m"
+        printf "  Exitcode: \e[1m%s\033[0m\n" "$APPLICATION_RETURN_CODE"
+        printf "\e[34m\033[0m"
+        printf "\n"
+        printf "\n"
+    fi
 }
 
 #######################################
@@ -382,7 +442,7 @@ function print_usage {
             local cmd_description=$(grep '^\#[[:space:]]@description:' -m 1 $file | awk -F'"' '{ print $2}');
             local cmd_visible=$(grep '^\#[[:space:]]@command:' -m 1 $file | awk -F'"' '{ print $2}');
             if [ -n "$cmd_visible" ]; then
-                printf "  \e[32m%s %s \e[39m${cmd_description}\n" $cmd_name "${cmd_output_space:${#cmd_name}}"
+                printf "  \e[32m%s %s \e[39m${cmd_description}\n" "$cmd_name" "${cmd_output_space:${#cmd_name}}"
             fi
         done
     fi
@@ -407,8 +467,8 @@ function print_usage {
 function prepare_logfile {
     # define log file
     LOG_PATH=${BASE_DIR}/log
-    if [ ! -d $LOG_PATH ]; then
-        mkdir $LOG_PATH
+    if [ ! -d "$LOG_PATH" ]; then
+        mkdir "$LOG_PATH"
     fi
     LOG_FILE="$( mktemp ${LOG_PATH}/XXXXXXXXXXXXX ).log"
 }
@@ -424,11 +484,9 @@ function prepare_logfile {
 #######################################
 function cleanup_logfiles {
     # cleanup log directory and keep last 10 execution logs
-    if [ -d $LOG_PATH ]; then
-        cd $LOG_PATH
-        cleanup_logfiles=$(ls -t1 | tail -n +11)
-        test "$cleanup_logfiles" && rm $cleanup_logfiles
-        cd ..
+    if [ -d "$LOG_PATH" ]; then
+        cleanup_logfiles=$(ls -t1 "$LOG_PATH" | tail -n +11)
+        test "$cleanup_logfiles" && rm "$cleanup_logfiles"
     fi
 }
 
@@ -450,7 +508,7 @@ function execute_ansible_playbook {
 
     # prepare cli arguments if given and transform them to ansible extra vars format
     if [ "$#" -gt 1 ]; then
-        for i in `seq 2 $#`; do  if [ $i -gt 2 ]; then parsed_args+=,; fi; parsed_args+="\"${!i}\""; done
+        for i in $(seq 2 $#); do  if [ $i -gt 2 ]; then parsed_args+=,; fi; parsed_args+="\"${!i}\""; done
     fi
 
     # define complete extra vars object
@@ -503,6 +561,9 @@ EOM
 #   None
 #######################################
 function shutdown {
+
+## cleanup logfile
+
     # exit with given return code
     exit $APPLICATION_RETURN_CODE
 }
@@ -517,9 +578,17 @@ function shutdown {
 # Returns:
 #   None
 #######################################
-function install_valet_sh {
+function install_cli_itself {
     if [ ! -x "$(command -v ansible)" ]; then
         spinner_toogle "Installing Ansible \e[32m$command\e[39m"
+        # if ansible is not available, install pip and ansible
+        sudo easy_install pip;
+        sudo pip install -Iq ansible;
+        spinner_toogle
+    fi
+
+    if [ ! -x "$(command -v ansible)" ]; then
+        spinner_toogle "Checking Ansible \e[32m$command\e[39m"
         # if ansible is not available, install pip and ansible
         sudo easy_install pip;
         sudo pip install -Iq ansible;
@@ -536,7 +605,7 @@ function install_valet_sh {
 #######################################
 # Main
 # Globals:
-#   None
+#   DEBUG_ENABLED
 # Arguments:
 #   Command
 #   Subcommand
@@ -544,17 +613,38 @@ function install_valet_sh {
 #   None
 #######################################
 function main {
-    prepare
-    print_header
+    # Read parameters like -v for verbose
+    log debug "parameters are: $@"
+    POSITIONAL=()
+	while [[ $# -gt 0 ]]; do
+	key="$1";case $key in
+	    -v|--verbose|--debug)
+	        DEBUG_ENABLED=1;shift;;
+	    -h|--help)
+	        init;print_usage;shift;;
+	    ## trick temporary for install routine
+	    install)
+	        install_cli_itself;shift;;
+	    #
+	    *)
+	        init;POSITIONAL+=("$1");shift;;
+	esac;done
+	set -- "${POSITIONAL[@]}" # restore positional parameters
 
-    case "${1--h}" in
-        -h) print_usage;;
-        -v) ;;
-        install|upgrade) install_upgrade;;
+    log debug "remaining positional parameters are: $@"
+
+    #log debug "Starting with prepare"
+    # Todo Disabled prepare function! ##prepare
+
+    #case "${1--h}" in
+
+        #-h) print_usage;;
+        #-v) ;;
+    #   install|upgrade) install_upgrade;;
         # try to execute playbook based on command
         # ansible will throw an error if specific playbook does not exist
-        *) execute_ansible_playbook "$@";;
-    esac
+    #    *) execute_ansible_playbook "$@";;
+    #esac
 
     print_footer
     shutdown
@@ -562,4 +652,3 @@ function main {
 
 # start console tool with command line args
 main "$@"
-
