@@ -67,12 +67,27 @@ spinner_toogle() {
 #   None
 #######################################
 function log {
-    case "${1--h}" in
-        error) printf "\033[1;31m✘ %s\033[0m\n" "$2";;
-        success) printf "\033[1;32m✔ %s\033[0m\n" "$2";;
-        debug) if [ "$DEBUG_ENABLED" ]; then printf "\033[1;32mDebug: %s\033[0m\n" "$2";fi;;
-        *) printf "%s\n" "$2";;
-    esac
+    if [[ -n "$LOG_FILE" && -w "$LOG_FILE" ]]; then
+        logtext=""
+        case "${1--h}" in
+            error) logtext="\033[1m\033[31m✘ $2\033[0m";;
+            success) logtext="\033[1\033[32m✔ $2\033[0m";;
+            debug) if [ "$DEBUG_ENABLED" = true ]; then
+                        logtext="# debug: $2"
+                   else
+                        echo -e "# Debug: $2" >> "$LOG_FILE"
+                   fi;;
+            *) printf "%s\n" "$2";;
+        esac
+
+        echo -e "$logtext" >> "$LOG_FILE"
+        echo -e "$logtext"
+    else
+        echo -e "ERROR: LOG_FILE \"$LOG_FILE\" is not writeable!"
+        if [ "$DEBUG_ENABLED" ]; then
+            echo -e "# DEBUG: $2"
+        fi
+    fi
 }
 
 
@@ -151,13 +166,12 @@ function version_compare {
 #   APPLICATION_NAME
 #   APPLICATION_MODE
 #   APPLICATION_GIT_URL
+#   APPLICATION_GIT_API_URL
 #   SEMVER_REGEX
 #   ANSIBLE_PLAYBOOKS_DIR
 #   INSTALL_DIR
-#   SCRIPT_PATH
-#   BASE_DIR
+#   CLI_TMP_WORKDIR
 #   APPLICATION_VERSION
-#   OSTYPE
 #   DEPENDENCIES_FULLFILLED
 # Arguments:
 #   None
@@ -165,46 +179,86 @@ function version_compare {
 #   None
 #######################################
 function init {
-    log debug "Starting init routine"
     APPLICATION_RETURN_CODE=0
     APPLICATION_START_TIME=$(ruby -e 'puts Time.now.to_f');
     # define variables
     APPLICATION_NAME="valet.sh"
     : "${APPLICATION_MODE:=production}"
     APPLICATION_GIT_URL=${APPLICATION_GIT_URL:="https://github.com/valet-sh/valet-sh"}
+    APPLICATION_GIT_API_URL=${APPLICATION_GIT_API_URL:="https://api.github.com/repos/valet-sh/valet-sh"}
 
     SEMVER_REGEX="^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$"
 
     ANSIBLE_PLAYBOOKS_DIR="playbooks"
     INSTALL_DIR="$HOME/.${APPLICATION_NAME}";
 
-    # resolve symlink if needed
-    # Todo early MacOS does not have BASH_SOURCE use $0 or something else
-    test -h "${BASH_SOURCE[0]}" && SCRIPT_PATH="$(readlink "${BASH_SOURCE[0]}")" || SCRIPT_PATH="${BASH_SOURCE[0]}"
-    # use current bash source script dir as base_dir
-    BASE_DIR="$( dirname "${SCRIPT_PATH}" )"
+    # Check in which environment the CLI tool is, running from remote, is there a local installation already, what is CLI_BASE_DIR, CLI_SCRIPT_PATH...
+    cli_check_environment
+    INIT_DEBUGLOG+="\n# debug: Selecting \"$CLI_BASE_DIR\" as CLI_BASE_DIR"
 
-    ##logfile prepare here
+    # Create temporary workdir for CLI, if it's not yet installed
+    if [ "$CLI_IS_INSTALLED" = false ]; then
+        CLI_TMP_WORKDIR="/tmp/$APPLICATION_NAME"
+        cli_prepare_tmp_workdir
+    fi
 
-
-    #if [ -d $INSTALL_DIR ]; then
-        # get the current version from git
-    #    APPLICATION_VERSION=$(git --git-dir="${BASE_DIR}/.git" --work-tree="${BASE_DIR}" describe --tags)
-
-   #fi
+    # set LOG_PATH and prepare logfile
+    prepare_logfile
 
     # todo : Checks in separate function check_deps --> DEPENDENCIES_FULLFILLED
+    # still needed?
 
-    # set_application_version function
+	print_header
+}
 
-    #
-    #if [ -f /Library/Developer/CommandLineTools/usr/bin/git ]; then
+#######################################
+# Check in which environment the CLI tool is, running from remote, is there a local installation already, what is CLI_BASE_DIR, CLI_SCRIPT_PATH...
+# Globals:
+#   CLI_IS_INSTALLED
+#   CLI_FROM_REMOTE
+#   OSTYPE
+#   CLI_SCRIPT_PATH
+#   CLI_BASE_DIR
+#   APPLICATION_VERSION
+# Arguments:
+#   None
+# Returns:
+#   None
+#######################################
+function cli_check_environment {
+    # get SCRIPT_PATH - resolve symlink if needed
+    # Todo: early MacOS does not have BASH_SOURCE use $0 or something else
+    test -h "${BASH_SOURCE[0]}" && CLI_SCRIPT_PATH="$(readlink "${BASH_SOURCE[0]}")" || CLI_SCRIPT_PATH="${BASH_SOURCE[0]}"
+    # get BASE_DIR - current bash script dirname
+    CLI_BASE_DIR="$( dirname "${CLI_SCRIPT_PATH}" )"
 
-    #else
-    #    APPLICATION_VERSION=""
-    #fi
+    if [[ -d "$INSTALL_DIR" && -x "$INSTALL_DIR/.${APPLICATION_NAME}" ]]; then
+        INIT_DEBUGLOG+="\n# debug: Found a existing $APPLICATION_NAME installation in \"$INSTALL_DIR\"!"
+        CLI_IS_INSTALLED=true
 
-    ## seperate function is_mac (ab incl 10.12 ansonsten APPLICATION_RETURN_CODE ++ shutdown A, is_linux
+        if [[ "$CLI_SCRIPT_PATH" -eq "$INSTALL_DIR/.${APPLICATION_NAME}" ]]; then
+            INIT_DEBUGLOG+="\n# debug: Running $APPLICATION_NAME locally from INSTALL_DIR \"$INSTALL_DIR\""
+            CLI_FROM_REMOTE=false
+            if [ -r "$INSTALL_DIR/.installed_version" ]; then
+                APPLICATION_VERSION=$(cat "$INSTALL_DIR/.installed_version")
+            else
+                APPLICATION_VERSION="MISSING APPLICATION_VERSION"
+            fi
+            # todo: set_application_version function
+            #if [ -d $INSTALL_DIR ]; then
+                # get the current version from git
+            #    APPLICATION_VERSION=$(git --git-dir="${BASE_DIR}/.git" --work-tree="${BASE_DIR}" describe --tags)
+            #fi
+        else
+            INIT_DEBUGLOG+="\n# debug: Running $APPLICATION_NAME not installed (!) but remotely started from \"$CLI_SCRIPT_PATH\"!"
+            CLI_FROM_REMOTE=true
+        fi
+    else
+        INIT_DEBUGLOG+="\n# debug: Running $APPLICATION_NAME NOT INSTALLED from \"$CLI_SCRIPT_PATH\"!"
+        CLI_FROM_REMOTE=true && CLI_IS_INSTALLED=false
+    fi
+
+    # Todo allow only MacOS incl 10.12 else: APPLICATION_RETURN_CODE ++ shutdown A
     OSTYPE="unsupported"
     if [[ $(uname -s) == "Darwin" ]]
 	 then
@@ -216,10 +270,41 @@ function init {
 		# fallback to macos
 		OSTYPE="mac"
 	fi
+}
 
-	log debug "Finished init routine"
+#######################################
+# Prepare a temporary workdir in /tmp/$APPLICATION_NAME
+# Globals:
+#   APPLICATION_VERSION
+# Arguments:
+#   None
+# Returns:
+#   None
+#######################################
+function cli_prepare_tmp_workdir {
+    if [ ! -d "$CLI_TMP_WORKDIR" ]; then
+        mkdir "$CLI_TMP_WORKDIR" || shutdown "Failed to create CLI_TMP_WORKDIR"
+    else
+        if [[ ${#CLI_TMP_WORKDIR} -gt 5 ]]; then
+            rm ${CLI_TMP_WORKDIR:0}/*
+            INIT_DEBUGLOG+="\n# debug: Cleared orphaned CLI_TMP_WORKDIR \"$CLI_TMP_WORKDIR\""
+        fi
+    fi
+}
 
-	print_header
+#######################################
+# Enable debug mode
+# Globals:
+#   DEBUG_ENABLED
+# Arguments:
+#   None
+# Returns:
+#   None
+#######################################
+function cli_enable_debug {
+    DEBUG_ENABLED=true
+    # log any debug from init function
+    log debug "$INIT_DEBUGLOG\n"
 }
 
 #######################################
@@ -299,7 +384,7 @@ function install_upgrade {
     RELEASE_TAG=$APPLICATION_VERSION
 
     if [ $APPLICATION_MODE = "production" ]; then
-        # create tmp directory for cloning valet.sh
+        # create tmp directory for cloning CLI
         local tmp_dir=$(mktemp -d)
         local src_dir=$tmp_dir
 
@@ -326,7 +411,7 @@ function install_upgrade {
         git checkout --quiet --force "$RELEASE_TAG"
     else
         # take base dir for developer installation
-        src_dir=$BASE_DIR
+        src_dir=$CLI_BASE_DIR
     fi
 
     # check if install dir exist
@@ -372,7 +457,7 @@ function install_upgrade {
 #######################################
 function print_header {
     echo -e "\033[1m\033[34m$APPLICATION_NAME\033[0m $APPLICATION_VERSION\033[0m"
-    echo -e "\033[2m  (c) 2018 TechDivision GmbH\033[0m\n"
+    echo -e "\033[2m  (c) 2018 TechDivision GmbH\033[0m"
 }
 
 #######################################
@@ -390,7 +475,7 @@ function print_header {
 #   None
 #######################################
 function print_footer {
-    if [ "$DEBUG_ENABLED" ]; then
+    if [ "$DEBUG_ENABLED" = true ]; then
         LC_NUMERIC="en_US.UTF-8"
 
         APPLICATION_END_TIME=$(ruby -e 'puts Time.now.to_f')
@@ -412,7 +497,6 @@ function print_footer {
         printf "\e[34m"
         printf "  Exitcode: \e[1m%s\033[0m\n" "$APPLICATION_RETURN_CODE"
         printf "\e[34m\033[0m"
-        printf "\n"
         printf "\n"
     fi
 }
@@ -436,7 +520,7 @@ function print_usage {
     printf "\n"
     printf "\e[33mAvailable commands:\e[39m\n"
 
-    if [ -d "$BASE_DIR/playbooks" ]; then
+    if [ -d "$CLI_BASE_DIR/playbooks" ]; then
         for file in ./playbooks/**.yml; do
             local cmd_name=$(basename $file .yml);
             local cmd_description=$(grep '^\#[[:space:]]@description:' -m 1 $file | awk -F'"' '{ print $2}');
@@ -449,9 +533,11 @@ function print_usage {
 
     if [ ! -d "$INSTALL_DIR" ]; then
         local cmd_name="install"
-        local cmd_description="Installs valet.sh"
+        local cmd_description="Installs $APPLICATION_NAME"
         printf "  \e[32m%s %s \e[39m${cmd_description}\n" $cmd_name "${cmd_output_space:${#cmd_name}}"
     fi
+
+    shutdown
 }
 
 #######################################
@@ -465,12 +551,24 @@ function print_usage {
 #   None
 #######################################
 function prepare_logfile {
-    # define log file
-    LOG_PATH=${BASE_DIR}/log
-    if [ ! -d "$LOG_PATH" ]; then
-        mkdir "$LOG_PATH"
+    # set LOG_PATH and preprare logfile
+    if [ "$CLI_IS_INSTALLED" = true ]; then
+        LOG_PATH="$INSTALL_DIR/log"
+    else
+        LOG_PATH="$CLI_TMP_WORKDIR"
     fi
-    LOG_FILE="$( mktemp ${LOG_PATH}/XXXXXXXXXXXXX ).log"
+    # create LOG_PATH if not yet existent
+    if [ ! -d "$LOG_PATH" ]; then
+    # Todo: Implement fallback to /tmp/ if cannot create
+        mkdir "$LOG_PATH" || echo -e "ERROR: Cannot create directory for logfiles \"$LOG_PATH\""
+    fi
+    tmp_log_file="$(mktemp -q ${LOG_PATH}/XXXXXXXXXXXXX)"
+    LOG_FILE="${tmp_log_file}.log"
+    mv "$tmp_log_file" "$LOG_FILE"
+
+    if [ "$DEBUG_ENABLED" = true ];then
+        INIT_DEBUGLOG+="\n# debug: Logfile-path is: $LOG_FILE"
+    fi
 }
 
 #######################################
@@ -501,6 +599,8 @@ function cleanup_logfiles {
 #   None
 #######################################
 function execute_ansible_playbook {
+    log debug "Starting execute_ansible_playbook with parameters: $*"
+
     local command=$1
     local ansible_playbook_file="$ANSIBLE_PLAYBOOKS_DIR/$command.yml"
     local parsed_args=""
@@ -561,8 +661,11 @@ EOM
 #   None
 #######################################
 function shutdown {
+## Todo: cleanup logfile
 
-## cleanup logfile
+    if [[ $# -gt 0 ]]; then
+        log error "FATAL: $*"
+    fi
 
     # exit with given return code
     exit $APPLICATION_RETURN_CODE
@@ -579,33 +682,75 @@ function shutdown {
 #   None
 #######################################
 function install_cli_itself {
+    log debug "Starting installation routine for CLI itself"
+
+    # Ensure ansible command is available
     if [ ! -x "$(command -v ansible)" ]; then
-        spinner_toogle "Installing Ansible \e[32m$command\e[39m"
+        spinner_toogle "Installing Ansible"
         # if ansible is not available, install pip and ansible
-        sudo easy_install pip;
-        sudo pip install -Iq ansible;
+        #log debug $(sudo easy_install pip)
+        #log debug $(sudo pip install -Iq ansible)
+
+        if [ ! -x "$(command -v ansible)" ]; then
+            log error "Failed to install and access ansible!"
+            #shutdown "Installation failed! REASON: ansible command not available"
+        fi
         spinner_toogle
+    else
+        log debug "ok: Ansible accessible"
     fi
 
-    if [ ! -x "$(command -v ansible)" ]; then
-        spinner_toogle "Checking Ansible \e[32m$command\e[39m"
-        # if ansible is not available, install pip and ansible
-        sudo easy_install pip;
-        sudo pip install -Iq ansible;
-        spinner_toogle
+    if [ -x "$(command -v curl)" ]; then
+        # Get current release tarball URL
+        release_url="${APPLICATION_GIT_API_URL}/releases/latest"
+            log debug "Checking releases at: $release_url"
+        curl_content=$(curl --connect-timeout 10 -s "$release_url")
+        if [ $? -gt 0 ]; then shutdown "Installation failed. REASON: cURL failed to access $APPLICATION_GIT_API_URL";fi
+            echo -e "cURL output: $curl_content" >> "$LOG_FILE"
+
+        release_tag=$(echo -e "$curl_content" | grep "tag_name" | cut -d \" -f 4)
+        tarball_url=$(echo -e "$curl_content" | grep "tarball_url" | cut -d \" -f 4)
+            log debug "selected tarball_url: \"$tarball_url\" with release_tag: \"$release_tag\""
+        path_tarball="$CLI_TMP_WORKDIR/install_${APPLICATION_NAME}.tar.gz"
+            log debug "selected path_tarball: \"$path_tarball\""
+
+        if [ -n "tarball_url" ]; then
+            spinner_toogle "Downloading latest version"
+            # Download release
+            curl --connect-timeout 10 -s -L "$tarball_url" -o "$path_tarball" >> "$LOG_FILE" 2>&1 || shutdown "Failed to connect or download tarball!"
+            # Nasty check, if its a valid tar-file
+            if [ "tar tf path_tarball &> /dev/null" ]; then
+                if [ ! -d "$INSTALL_DIR" ]; then
+                    mkdir "$INSTALL_DIR" || shutdown "Installation failed. REASON: could not create application directory \"$INSTALL_DIR\""
+                else
+                    ## TODO: define what to tidyup
+                    rm -rf "$INSTALL_DIR"/*
+                    rm -rf "$INSTALL_DIR"/.[!.]*
+                fi
+                ## TODO: Macos --strip 1 not avaialable
+                # Extract tarball to INSTALL_DIR, note: stripping parent-folder containing commit-ID
+                tar xfv "$path_tarball" --strip-components=1 -C "$INSTALL_DIR" >> "$LOG_FILE" 2>&1 || shutdown "Installation failed. REASON: could not extract tarball to \"$INSTALL_DIR\""
+
+                # Execute common ansible playbook to prepare machine
+                execute_ansible_playbook common
+            else
+                shutdown "Installation failed. REASON: could not download a valid tarball from \"$APPLICATION_GIT_API_URL\""
+            fi
+
+            spinner_toogle
+        else
+            shutdown "Installation failed: REASON: failed to fetch tarball_url for $release_url"
+        fi
+
+    else
+        shutdown "Installation failed! REASON: cURL command not available"
     fi
-
-    # Download current release tarball
-    curl -s https://api.github.com/repos/valet-sh/valet-sh/releases/latest | grep "tarball_url" | cut -d : -f 2,3 | tr -d \" | tr -d , | wget -qi -  -O /tmp/latest_release.tar || log "ding dong dang"
-
-# Todo
-
 }
 
 #######################################
 # Main
 # Globals:
-#   DEBUG_ENABLED
+#   None
 # Arguments:
 #   Command
 #   Subcommand
@@ -613,38 +758,27 @@ function install_cli_itself {
 #   None
 #######################################
 function main {
-    # Read parameters like -v for verbose
-    log debug "parameters are: $@"
-    POSITIONAL=()
-	while [[ $# -gt 0 ]]; do
+    INIT_DEBUGLOG="Starting init routine, cmd line parameters are: \"$*\""
+    init
+    # Read cli parameters like -v for verbose and separately read arguments for ansible playbook
+	while [[ $# -ge 0 ]]; do
 	key="$1";case $key in
+
+	## CLI params: -v -x -.... "command" "parameters"
 	    -v|--verbose|--debug)
-	        DEBUG_ENABLED=1;shift;;
-	    -h|--help)
-	        init;print_usage;shift;;
-	    ## trick temporary for install routine
+	        cli_enable_debug;shift;;
+	    ""|-h|--help)
+	        print_usage;shift;;
+	    -*)
+	        log error "ERROR: unkown CLI command line argument, aborting!";shutdown;;
+	    # Todo trick temporary for install routine
 	    install)
-	        install_cli_itself;shift;;
-	    #
+	        install_cli_itself;break;;
+	    # Hand over parameters to execute_ansible_playbook function
 	    *)
-	        init;POSITIONAL+=("$1");shift;;
+	        log debug "remaining positional parameters for ansible are: \"$*\"";
+	        execute_ansible_playbook "$@";break;;
 	esac;done
-	set -- "${POSITIONAL[@]}" # restore positional parameters
-
-    log debug "remaining positional parameters are: $@"
-
-    #log debug "Starting with prepare"
-    # Todo Disabled prepare function! ##prepare
-
-    #case "${1--h}" in
-
-        #-h) print_usage;;
-        #-v) ;;
-    #   install|upgrade) install_upgrade;;
-        # try to execute playbook based on command
-        # ansible will throw an error if specific playbook does not exist
-    #    *) execute_ansible_playbook "$@";;
-    #esac
 
     print_footer
     shutdown

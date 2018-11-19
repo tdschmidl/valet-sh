@@ -5,7 +5,7 @@
 # Temporary workaround till install_upgrade from CLI is available in ansible
 # @author: "Johann Zelger"
 
-- name: "Init"
+- name: "Run common roles"
   hosts: local
   gather_facts: True
 
